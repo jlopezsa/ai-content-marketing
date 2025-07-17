@@ -1,0 +1,14 @@
+[tool.poetry]
+name = "ai-content-marketing"
+version = "0.1.0"
+description = "A multi-agent application for automating digital content marketing. It coordinates autonomous agents to generate, optimize, and analyze content, replacing the need for a marketing team."
+authors = ["Julian Lopez <jlopezsa@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.13"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
