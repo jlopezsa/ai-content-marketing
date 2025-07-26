@@ -5,11 +5,10 @@ import requests
 from dotenv import load_dotenv, find_dotenv
 from langchain_openai import ChatOpenAI
 from langchain.tools import tool
-from langchain_community.tools.tavily_search import TavilySearchResults
+from langchain_tavily import TavilySearch
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.agents import AgentExecutor, create_openai_tools_agent
-from langchain_core.messages import HumanMessage, BaseMessage
-from langchain.output_parsers.openai_functions import JsonOutputFunctionsParser
+from langchain_core.messages import HumanMessage, BaseMessage, ToolMessage
 from typing import TypedDict, Annotated, Sequence
 from langgraph.graph import StateGraph, END
 from bs4 import BeautifulSoup
@@ -24,11 +23,6 @@ model_name = os.environ["ORCHESTATOR_MODEL"]
 llm = ChatOpenAI(base_url=base_url, model=model_name)
 
 
-# prompt = "Dame 3 ideas de títulos para un blog sobre inteligencia artificial en marketing digital y generador de contenido."
-# response = llm.invoke(prompt)
-# print(response.content)
-
-
 @tool("process_search_tool", return_direct=False)
 def process_search_tool(url: str):
     """Parse web content with BeautifulSoup"""
@@ -37,14 +31,16 @@ def process_search_tool(url: str):
     return soup.get_text()
 
 # max_results=1, la cantidad de busquedas que hace en la web
-tools = [TavilySearchResults(max_results=1), process_search_tool]
+tavily_tool = TavilySearch(
+    max_results=1,
+    search_depth="basic"
+)
+tools = [tavily_tool, process_search_tool]
 
-def create_new_agent(llm: ChatOpenAI,
-                  tools: list,
-                  system_prompt: str):
+def create_new_agent(llm: ChatOpenAI, tools: list, system_prompt: str):
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
-        MessagesPlaceholder(variable_name="messages"),
+        MessagesPlaceholder(variable_name="messages"), # MessagesPlaceholder: This substitutes a variable with a list of messages provided in real time
         MessagesPlaceholder(variable_name="agent_scratchpad")
     ])
 
@@ -65,26 +61,37 @@ system_prompt = (
 
 options = ["FINISH"] + content_marketing_team
 
+# Herramienta para estrucutrar las salidas
 function_def = {
     "name": "route",
     "description": "Select the next role.",
     "parameters": {
         "title": "routeSchema",
         "type": "object",
-        "properties": {"next": {"title": "Next", "anyOf": [{"enum": options}]}},
+        "properties": {
+            "next": {
+                "type": "string",
+                "enum": options
+            }
+        },
         "required": ["next"]
     }
 }
 
-prompt = ChatPromptTemplate.from_messages([
+content_marketing_prompt = ChatPromptTemplate.from_messages([
     ("system", system_prompt),
     MessagesPlaceholder(variable_name="messages"),
     ("system",
      "Given the conversation above, who should act next? Or should we FINISH? Select one of: {options}"),
 ]).partial(options=str(options), content_marketing_team=", ".join(content_marketing_team))
 
-content_marketing_manager_chain = (prompt | llm.bind_functions(
-    functions=[function_def], function_call="route") | JsonOutputFunctionsParser())
+content_marketing_llm_with_tools = llm.bind_tools(
+    tools=[function_def],   # herramienta para seleccionar el siguiente rol
+    tool_choice="route"     # forzar al modelo a usar esta herramienta
+    )
+
+# Conectar el prompt con el modelo como una cadena secuencial
+content_marketing_manager_chain = content_marketing_prompt | content_marketing_llm_with_tools
 
 online_researcher_agent = create_new_agent(
     llm,
@@ -93,9 +100,8 @@ online_researcher_agent = create_new_agent(
     """
     )
 
-online_researcher_node = functools.partial(
-    agent_node, agent=online_researcher_agent, name="online_researcher"
-)
+def online_researcher_node(state):
+    return agent_node(state, agent=online_researcher_agent, name="online_researcher")
 
 blog_manager_agent = create_new_agent(
     llm, tools,
@@ -103,8 +109,8 @@ blog_manager_agent = create_new_agent(
     """)
 
 
-blog_manager_node = functools.partial(
-    agent_node, agent=blog_manager_agent, name="blog_manager")
+def blog_manager_node(state):
+    return agent_node(state, agent=blog_manager_agent, name="blog_manager")
 
 
 social_media_manager_agent = create_new_agent(
@@ -112,8 +118,8 @@ social_media_manager_agent = create_new_agent(
     """Eres un Gestor de Redes Sociales especializado en convertir borradores en tweets concisos y atractivos. Tu labor incluye condensar el mensaje principal en 280 caracteres, optimizar la interacción con lenguaje persuasivo y hashtags relevantes, y cumplir con las buenas prácticas y normativas de Twitter para maximizar el impacto de la marca.
     """)
 
-social_media_manager_node = functools.partial(
-    agent_node, agent=social_media_manager_agent, name="social_media_manager")
+def social_media_manager_node(state):
+    return agent_node(state, agent=social_media_manager_agent, name="social_media_manager")
 
 class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], operator.add]
@@ -121,39 +127,61 @@ class AgentState(TypedDict):
     
 workflow = StateGraph(AgentState)
 
-print(">>>> content_marketing_manager_chain:", id(content_marketing_manager_chain))
-workflow.add_node(key="content_marketing_manager", node=content_marketing_manager_chain)
+def content_marketing_manager_node(state):
+    result = content_marketing_manager_chain.invoke(state)
+    # Extraer el argumento 'next' desde la llamada a herramienta
+    tool_call = result.tool_calls[0]
+    tool_result = tool_call["args"]["next"]
 
-print(">>>> online_researcher_node:", id(online_researcher_node))
-workflow.add_node(key="online_researcher", node=online_researcher_node)
+    tool_message = ToolMessage(
+        tool_call_id=tool_call["id"],
+        content=tool_result  # puede ser {"next": "..."} o el nombre directamente
+    )
 
-print(">>>> blog_manager_node:", id(blog_manager_node))
-workflow.add_node(key="blog_manager", node=blog_manager_node)
+    return {
+        "messages": state["messages"] + [result, tool_message],
+        "next": tool_result
+    }
 
-print(">>>> social_media_manager_node:", id(social_media_manager_node))
-workflow.add_node(key="social_media_manager", node=social_media_manager_node)
 
-print("---------- FLAG -------------")
+# Definición de los nodos
+workflow.add_node("content_marketing_manager", content_marketing_manager_node)
+#workflow.add_node("content_marketing_manager", content_marketing_manager_chain)
+workflow.add_node("online_researcher", online_researcher_node)
+workflow.add_node("blog_manager", blog_manager_node)
+workflow.add_node("social_media_manager", social_media_manager_node)
 
-for member in content_marketing_team:
-    workflow.add_edge(start_key=member, end_key="content_marketing_manager")
+# Transiciones
+workflow.add_edge("online_researcher", "content_marketing_manager")
+workflow.add_edge("blog_manager", "content_marketing_manager")
+workflow.add_edge("social_media_manager", "content_marketing_manager")
 
-conditional_map = {k: k for k in content_marketing_team}
+# Rutas conicionales
+conditional_map = {
+    "online_researcher": "online_researcher",
+    "blog_manager": "blog_manager",
+    "social_media_manager": "social_media_manager",
+    "FINISH": END
+}
 
-conditional_map['FINISH'] = END
+def select_next_step(state):
+    return state["next"]
 
+# Anhadiendo las transiciones condicionales
 workflow.add_conditional_edges(
-    "content_marketing_manager", lambda x: x["next"], conditional_map)
+    "content_marketing_manager", select_next_step, conditional_map)
 
+# Establecer punto de entrada
 workflow.set_entry_point("content_marketing_manager")
 
 multiagent = workflow.compile()
+
 
 for s in multiagent.stream(
     {
         "messages": [
             HumanMessage(
-                content="""Escríbeme un informe sobre el Comportamiento Agéntico. Después de la investigación, pasa los hallazgos al gestor del blog para que genere el artículo final. Una vez hecho, pásalo al gestor de redes sociales para que redacte un tweet sobre el tema.
+                content="""Escríbeme un informe sobre frameworks para implementar Agentes de IA. Después de la investigación, pasa los hallazgos al gestor del blog para que genere el artículo final. Una vez hecho, pásalo al gestor de redes sociales para que redacte un tweet sobre el tema.
                 """
             )
         ],
