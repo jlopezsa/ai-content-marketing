@@ -1,4 +1,5 @@
 import functools
+import io
 import operator
 import os
 import requests
@@ -11,6 +12,7 @@ from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain_core.messages import HumanMessage, BaseMessage, ToolMessage
 from typing import TypedDict, Annotated, Sequence
 from langgraph.graph import StateGraph, END
+from PIL import Image
 from bs4 import BeautifulSoup
 
 _ = load_dotenv(find_dotenv())
@@ -56,7 +58,10 @@ content_marketing_team = ["online_researcher", "blog_manager", "social_media_man
 
 #
 system_prompt = (
-    "Como gerente de marketing de contenidos, tu rol es supervisar la interacción entre estos" "trabajadores: {content_marketing_team}. Según la solicitud del" "usuario, determina qué trabajador debe realizar la siguiente acción. Cada trabajador es" "responsable de ejecutar una tarea específica y de informar sus hallazgos y avances. Una vez" "que todas las tareas estén completadas, indica 'FINISH'."
+    """Como gerente de marketing de contenidos, tu rol es supervisar la interacción entre estos trabajadores: {content_marketing_team}.
+    Según la solicitud del usuario, determina qué trabajador debe realizar la siguiente acción.
+    Cada trabajador es responsable de ejecutar una tarea específica y de informar sus hallazgos y avances.
+    Una vez que todas las tareas estén completadas, indica 'FINISH'."""
 )
 
 options = ["FINISH"] + content_marketing_team
@@ -91,7 +96,9 @@ content_marketing_llm_with_tools = llm.bind_tools(
     )
 
 # Conectar el prompt con el modelo como una cadena secuencial
-content_marketing_manager_chain = content_marketing_prompt | content_marketing_llm_with_tools
+#content_marketing_manager_chain = content_marketing_prompt | content_marketing_llm_with_tools
+content_marketing_manager_chain = (content_marketing_prompt | llm.bind_tools(
+    tools=[function_def], tool_choice="route"))
 
 online_researcher_agent = create_new_agent(
     llm,
@@ -130,6 +137,8 @@ workflow = StateGraph(AgentState)
 def content_marketing_manager_node(state):
     result = content_marketing_manager_chain.invoke(state)
     # Extraer el argumento 'next' desde la llamada a herramienta
+    if not result.tool_calls:
+        raise ValueError("No tool_call found in response.")
     tool_call = result.tool_calls[0]
     tool_result = tool_call["args"]["next"]
 
@@ -177,17 +186,26 @@ workflow.set_entry_point("content_marketing_manager")
 multiagent = workflow.compile()
 
 
+step_count = 0  # Inicializa el contador
 for s in multiagent.stream(
     {
         "messages": [
             HumanMessage(
-                content="""Escríbeme un informe sobre frameworks para implementar Agentes de IA. Después de la investigación, pasa los hallazgos al gestor del blog para que genere el artículo final. Una vez hecho, pásalo al gestor de redes sociales para que redacte un tweet sobre el tema.
-                """
+                content="""Escríbeme un informe sobre la importancia de nanomateriales en la salud. Después de la investigación, pasa los hallazgos al gestor del blog para que genere el artículo final. Una vez hecho, pásalo al gestor de redes sociales para que redacte un tweet sobre el tema."""
             )
         ],
     },
-    # Maximum number of steps to take in the multiagent
     {"recursion_limit": 150}
 ):
     if not "__end__" in s:
-        print(s, end="\n\n-----------------\n\n")
+        step_count += 1
+        print(f"🔄 Paso {step_count}:", s, end="\n\n-----------------\n\n")
+
+print(f"✅ Flujo completo. Total de pasos ejecutados: {step_count}")
+
+# ===================== Create a image graph =====================
+graph_image = multiagent.get_graph(xray=True)
+png_bytes = graph_image.draw_mermaid_png()
+image = Image.open(io.BytesIO(png_bytes))
+image.save("ai_analyst_generator.png")
+print("✅ Graph image saved as graph.png")
