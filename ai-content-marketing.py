@@ -24,7 +24,7 @@ model_name = os.environ["ORCHESTATOR_MODEL"]
 
 llm = ChatOpenAI(base_url=base_url, model=model_name)
 
-
+# return_direct=False indica que el resultado no se devuelve directamente al usuario final, sino que regresa al agente para que lo procese o combine con otras respuestas.
 @tool("process_search_tool", return_direct=False)
 def process_search_tool(url: str):
     """Parse web content with BeautifulSoup"""
@@ -34,7 +34,7 @@ def process_search_tool(url: str):
 
 # max_results=1, la cantidad de busquedas que hace en la web
 tavily_tool = TavilySearch(
-    max_results=1,
+    max_results=3,
     search_depth="basic"
 )
 tools = [tavily_tool, process_search_tool]
@@ -42,10 +42,9 @@ tools = [tavily_tool, process_search_tool]
 def create_new_agent(llm: ChatOpenAI, tools: list, system_prompt: str):
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
-        MessagesPlaceholder(variable_name="messages"), # MessagesPlaceholder: This substitutes a variable with a list of messages provided in real time
+        MessagesPlaceholder(variable_name="messages"),
         MessagesPlaceholder(variable_name="agent_scratchpad")
     ])
-
     agent = create_openai_tools_agent(llm, tools, prompt)
     executor = AgentExecutor(agent=agent, tools=tools)
     return executor
@@ -56,15 +55,17 @@ def agent_node(state, agent, name):
 
 content_marketing_team = ["online_researcher", "blog_manager", "social_media_manager"]
 
+options = ["FINISH"] + content_marketing_team
+
 #
 system_prompt = (
-    """Como gerente de marketing de contenidos, tu rol es supervisar la interacción entre estos trabajadores: {content_marketing_team}.
-    Según la solicitud del usuario, determina qué trabajador debe realizar la siguiente acción.
-    Cada trabajador es responsable de ejecutar una tarea específica y de informar sus hallazgos y avances.
-    Una vez que todas las tareas estén completadas, indica 'FINISH'."""
+    "As a content marketing manager, your role is to oversee the insight between these"
+    " workers: {content_marketing_team}. Based on the user's request,"
+    " determine which worker should take the next action. Each worker is responsible for"
+    " executing a specific task and reporting back thier findings and progress."
+    " Once all tasks are completed, indicate 'FINISH'."
 )
 
-options = ["FINISH"] + content_marketing_team
 
 # Herramienta para estrucutrar las salidas
 function_def = {
@@ -98,13 +99,17 @@ content_marketing_llm_with_tools = llm.bind_tools(
 # Conectar el prompt con el modelo como una cadena secuencial
 #content_marketing_manager_chain = content_marketing_prompt | content_marketing_llm_with_tools
 content_marketing_manager_chain = (content_marketing_prompt | llm.bind_tools(
-    tools=[function_def], tool_choice="route"))
+    tools=[function_def], 
+    tool_choice="route"
+    ))
 
 online_researcher_agent = create_new_agent(
     llm,
     tools,
-    """Tu función principal es actuar como un asistente de investigación en línea inteligente, experto en buscar en internet las historias más recientes y relevantes sobre diversos sectores como política, tecnología, salud, cultura y eventos globales. Tienes la capacidad de acceder a una amplia gama de fuentes de noticias en línea, blogs y plataformas de redes sociales para recopilar información en tiempo real.
-    """
+    """Your primary role is to function as an intelligent online research assistant, adept at scouring 
+    the internet for the latest and most relevant trending stories across various sectors like politics, technology, 
+    health, culture, and global events. You possess the capability to access a wide range of online news sources, 
+    blogs, and social media platforms to gather real-time information."""
     )
 
 def online_researcher_node(state):
@@ -112,8 +117,20 @@ def online_researcher_node(state):
 
 blog_manager_agent = create_new_agent(
     llm, tools,
-    """Eres un Gestor de Blog responsable de transformar borradores en artículos pulidos, optimizados para SEO y alineados con la voz del blog y su audiencia. Tus tareas clave incluyen mejorar la claridad y estructura del contenido, aplicar estrategias SEO, asegurar cumplimiento legal, mantener la coherencia editorial, y usar métricas para mejorar el rendimiento del blog.
-    """)
+    """You are a Blog Manager. The role of a Blog Manager encompasses several critical responsibilities aimed at transforming initial drafts into polished, SEO-optimized blog articles that engage and grow an audience. Starting with drafts provided by online researchers, the Blog Manager must thoroughly understand the content, ensuring it aligns with the blog's tone, target audience, and thematic goals. Key responsibilities include:
+
+    1. Content Enhancement: Elevate the draft's quality by improving clarity, flow, and engagement. This involves refining the narrative, adding compelling headers, and ensuring the article is reader-friendly and informative.
+
+    2. SEO Optimization: Implement best practices for search engine optimization. This includes keyword research and integration, optimizing meta descriptions, and ensuring URL structures and heading tags enhance visibility in search engine results.
+
+    3. Compliance and Best Practices: Ensure the content adheres to legal and ethical standards, including copyright laws and truth in advertising. The Blog Manager must also keep up with evolving SEO strategies and blogging trends to maintain and enhance content effectiveness.
+
+    4. Editorial Oversight: Work closely with writers and contributors to maintain a consistent voice and quality across all blog posts. This may also involve managing a content calendar, scheduling posts for optimal engagement, and coordinating with marketing teams to support promotional activities.
+
+    5. Analytics and Feedback Integration: Regularly review performance metrics to understand audience engagement and preferences. Use this data to refine future content and optimize overall blog strategy.
+
+    In summary, the Blog Manager plays a pivotal role in bridging initial research and the final publication by enhancing content quality, ensuring SEO compatibility, and aligning with the strategic objectives of the blog. This position requires a blend of creative, technical, and analytical skills to successfully manage and grow the blog's presence online.""")
+
 
 
 def blog_manager_node(state):
@@ -122,8 +139,18 @@ def blog_manager_node(state):
 
 social_media_manager_agent = create_new_agent(
     llm, tools,
-    """Eres un Gestor de Redes Sociales especializado en convertir borradores en tweets concisos y atractivos. Tu labor incluye condensar el mensaje principal en 280 caracteres, optimizar la interacción con lenguaje persuasivo y hashtags relevantes, y cumplir con las buenas prácticas y normativas de Twitter para maximizar el impacto de la marca.
-    """)
+    """You are a Social Media Manager. The role of a Social Media Manager, particularly for managing Twitter content, involves transforming research drafts into concise, engaging tweets that resonate with the audience and adhere to platform best practices. Upon receiving a draft from an online researcher, the Social Media Manager is tasked with several critical functions:
+
+    1. Content Condensation: Distill the core message of the draft into a tweet, which typically allows for only 280 characters. This requires a sharp focus on brevity while maintaining the essence and impact of the message.
+
+    2. Engagement Optimization: Craft tweets to maximize engagement. This includes the strategic use of compelling language, relevant hashtags, and timely topics that resonate with the target audience.
+
+    3. Compliance and Best Practices: Ensure that the tweets follow Twitter’s guidelines and best practices, including the appropriate use of mentions, hashtags, and links. Also, adhere to ethical standards, avoiding misinformation and respecting copyright norms.
+    
+    4. Your output have been a tweet (<=280 chars)
+
+    In summary, the Social Media Manager's role is crucial in leveraging Twitter to disseminate information effectively, engage with followers, and build the brand’s presence online. This position combines creative communication skills with strategic planning and analysis to optimize social media impact.""")
+
 
 def social_media_manager_node(state):
     return agent_node(state, agent=social_media_manager_agent, name="social_media_manager")
@@ -186,20 +213,41 @@ workflow.set_entry_point("content_marketing_manager")
 multiagent = workflow.compile()
 
 
-step_count = 0  # Inicializa el contador
-for s in multiagent.stream(
+AGENT_NODES = {"online_researcher", "blog_manager", "social_media_manager"}
+
+step_count = 0
+for event in multiagent.stream(
     {
         "messages": [
             HumanMessage(
-                content="""Escríbeme un informe sobre la importancia de nanomateriales en la salud. Después de la investigación, pasa los hallazgos al gestor del blog para que genere el artículo final. Una vez hecho, pásalo al gestor de redes sociales para que redacte un tweet sobre el tema."""
+                content=(
+                    """Write me a report on Nanomaterials in Health. After the research on Nanomaterials in Health, pass the findings to the blog manager to generate the final blog article. Once done, pass it to the social media manager to write a tweet on the subject."""
+                )
             )
         ],
     },
     {"recursion_limit": 150}
 ):
-    if not "__end__" in s:
-        step_count += 1
-        print(f"🔄 Paso {step_count}:", s, end="\n\n-----------------\n\n")
+    if "__end__" in event:
+        continue
+
+    step_count += 1
+    print(f"🔄 Paso {step_count}:")
+
+    # Recorremos los nodos que emitieron algo en este evento
+    for node_name, payload in event.items():
+        if node_name not in AGENT_NODES:
+            continue  # ignoramos el manager y otros nodos
+
+        msgs = payload.get("messages", [])
+        if not msgs:
+            continue
+
+        last_msg = msgs[-1]
+        if isinstance(last_msg, HumanMessage):
+            print(f"🧠 {node_name} dice:\n{last_msg.content}\n")
+
+    print("-" * 50)
 
 print(f"✅ Flujo completo. Total de pasos ejecutados: {step_count}")
 
