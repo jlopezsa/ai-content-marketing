@@ -35,7 +35,7 @@ def process_search_tool(url: str):
 # max_results=1, la cantidad de busquedas que hace en la web
 tavily_tool = TavilySearch(
     max_results=3,
-    search_depth="basic"
+    search_depth="advanced"
 )
 tools = [tavily_tool, process_search_tool]
 
@@ -107,9 +107,10 @@ online_researcher_agent = create_new_agent(
     llm,
     tools,
     """Your primary role is to function as an intelligent online research assistant, adept at scouring 
-    the internet for the latest and most relevant trending stories across various sectors like politics, technology, 
+    the internet for the latest and most relevant trending stories across various sectors like politics, technology, science, 
     health, culture, and global events. You possess the capability to access a wide range of online news sources, 
-    blogs, and social media platforms to gather real-time information."""
+    blogs, and social media platforms to gather real-time information.
+    All results of the research have to send to the next stage."""
     )
 
 def online_researcher_node(state):
@@ -128,6 +129,8 @@ blog_manager_agent = create_new_agent(
     4. Editorial Oversight: Work closely with writers and contributors to maintain a consistent voice and quality across all blog posts. This may also involve managing a content calendar, scheduling posts for optimal engagement, and coordinating with marketing teams to support promotional activities.
 
     5. Analytics and Feedback Integration: Regularly review performance metrics to understand audience engagement and preferences. Use this data to refine future content and optimize overall blog strategy.
+    
+    6. Show results: Yo have show the blog text, previusly to send to next stage.
 
     In summary, the Blog Manager plays a pivotal role in bridging initial research and the final publication by enhancing content quality, ensuring SEO compatibility, and aligning with the strategic objectives of the blog. This position requires a blend of creative, technical, and analytical skills to successfully manage and grow the blog's presence online.""")
 
@@ -147,7 +150,7 @@ social_media_manager_agent = create_new_agent(
 
     3. Compliance and Best Practices: Ensure that the tweets follow Twitter’s guidelines and best practices, including the appropriate use of mentions, hashtags, and links. Also, adhere to ethical standards, avoiding misinformation and respecting copyright norms.
     
-    4. Your output have been a tweet (<=280 chars)
+    4. Your output have been the tweets (<=280 chars)
 
     In summary, the Social Media Manager's role is crucial in leveraging Twitter to disseminate information effectively, engage with followers, and build the brand’s presence online. This position combines creative communication skills with strategic planning and analysis to optimize social media impact.""")
 
@@ -223,6 +226,11 @@ for event in multiagent.stream(
                 content=(
                     """Write me a report on Nanomaterials in Health. After the research on Nanomaterials in Health, pass the findings to the blog manager to generate the final blog article. Once done, pass it to the social media manager to write a tweet on the subject."""
                 )
+                # content=(
+                #     "You have do a online serach about the following topic 'AI in Signal Processing'."  
+                #     "After, pass the findings to the blog manager to generate the final blog article."
+                #     "Once done, pass it to the social media manager to write some tweets on the subject."
+                # )
             )
         ],
     },
