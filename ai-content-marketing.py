@@ -32,9 +32,9 @@ def process_search_tool(url: str):
     soup = BeautifulSoup(response.content, "html.parser")
     return soup.get_text()
 
-# max_results=1, la cantidad de busquedas que hace en la web
+# max_results la cantidad de busquedas que hace en la web
 tavily_tool = TavilySearch(
-    max_results=3,
+    max_results=1,
     search_depth="advanced"
 )
 tools = [tavily_tool, process_search_tool]
@@ -70,7 +70,7 @@ system_prompt = (
 # Herramienta para estrucutrar las salidas
 function_def = {
     "name": "route",
-    "description": "Select the next role.",
+    "description": "Select the next role to be executed.",
     "parameters": {
         "title": "routeSchema",
         "type": "object",
@@ -117,7 +117,7 @@ def online_researcher_node(state):
     return agent_node(state, agent=online_researcher_agent, name="online_researcher")
 
 blog_manager_agent = create_new_agent(
-    llm, tools,
+    llm, [],
     """You are a Blog Manager. The role of a Blog Manager encompasses several critical responsibilities aimed at transforming initial drafts into polished, SEO-optimized blog articles that engage and grow an audience. Starting with drafts provided by online researchers, the Blog Manager must thoroughly understand the content, ensuring it aligns with the blog's tone, target audience, and thematic goals. Key responsibilities include:
 
     1. Content Enhancement: Elevate the draft's quality by improving clarity, flow, and engagement. This involves refining the narrative, adding compelling headers, and ensuring the article is reader-friendly and informative.
@@ -141,7 +141,7 @@ def blog_manager_node(state):
 
 
 social_media_manager_agent = create_new_agent(
-    llm, tools,
+    llm, [],
     """You are a Social Media Manager. The role of a Social Media Manager, particularly for managing Twitter content, involves transforming research drafts into concise, engaging tweets that resonate with the audience and adhere to platform best practices. Upon receiving a draft from an online researcher, the Social Media Manager is tasked with several critical functions:
 
     1. Content Condensation: Distill the core message of the draft into a tweet, which typically allows for only 280 characters. This requires a sharp focus on brevity while maintaining the essence and impact of the message.
@@ -223,14 +223,15 @@ for event in multiagent.stream(
     {
         "messages": [
             HumanMessage(
-                content=(
-                    """Write me a report on Nanomaterials in Health. After the research on Nanomaterials in Health, pass the findings to the blog manager to generate the final blog article. Once done, pass it to the social media manager to write a tweet on the subject."""
-                )
                 # content=(
-                #     "You have do a online serach about the following topic 'AI in Signal Processing'."  
-                #     "After, pass the findings to the blog manager to generate the final blog article."
-                #     "Once done, pass it to the social media manager to write some tweets on the subject."
+                #     """Write me a report on Nanomaterials in Health. After the research on Nanomaterials in Health, pass the findings to the blog manager to generate the final blog article. Once done, pass it to the social media manager to write a tweet on the subject."""
                 # )
+                # content=(
+                #     """Write me a report on 'Generative Artificial Intelligence in Signal Processing'. After the research on 'Generative Artificial Intelligence in Signal Processing', pass the findings to the blog manager to generate the final blog article. Once done, pass it to the social media manager to write four correllated tweets on the subject."""
+                # )
+                content=(
+                    """Write me a report on 'Applications of Generative Artificial Intelligence in 2025'. After the research results, pass the findings to the blog manager to generate the final blog article. Once done, pass it to the social media manager to write four correllated tweets on the subject."""
+                )
             )
         ],
     },
