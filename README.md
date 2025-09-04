@@ -11,6 +11,8 @@ El flujo de trabajo está compuesto por los siguientes agentes:
 - **Social Media Manager**: Resume el contenido en un tweet atractivo y de alto impacto.
 - **Content Marketing Manager**: Coordina el flujo, asignando la siguiente tarea al agente adecuado.
 
+![motion architecture](image/future_agent_to_implement.svg)
+
 ## 🛠️ Tecnologías
 
 - Python 3.10+
